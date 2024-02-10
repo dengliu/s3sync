@@ -234,6 +234,9 @@ func uploadObject(s3Client *s3.Client, bucket, prefix, s3Path, localFilePath, lo
 	if err != nil {
 		return err
 	}
+	if relativePath == "." {
+		relativePath = filepath.Base(localFilePath)
+	}
 
 	// Construct the S3 object key using the prefix and relative path
 	objectKey := prefix + "/" + relativePath
