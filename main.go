@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
@@ -136,7 +138,7 @@ func main() {
 					}
 
 					atomic.AddUint64(&totalObjNum, 1)
-					atomic.AddUint64(&totalSize, uint64(obj.Size))
+					atomic.AddUint64(&totalSize, uint64(*obj.Size))
 
 				}
 			}(s3Clients[i])
@@ -229,6 +231,43 @@ func downloadObject(s3Client *s3.Client, bucket, objectKey, localDir string) err
 
 // Uploads a file to S3 preserving the relative path structure
 func uploadObject(s3Client *s3.Client, bucket, prefix, s3Path, localFilePath, localDir string) error {
+	// Calculate the relative path of the file
+	relativePath, err := filepath.Rel(localDir, localFilePath)
+	if err != nil {
+		return err
+	}
+	if relativePath == "." {
+		relativePath = filepath.Base(localFilePath)
+	}
+
+	// Construct the S3 object key using the prefix and relative path
+	objectKey := prefix + "/" + relativePath
+
+	// Open the file for reading
+	file, err := os.Open(localFilePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	var partMiBs int64 = 10
+	uploader := manager.NewUploader(s3Client, func(u *manager.Uploader) {
+		u.PartSize = partMiBs * 1024 * 1024
+	})
+	_, err = uploader.Upload(context.TODO(), &s3.PutObjectInput{
+		Bucket: &bucket,
+		Key:    &objectKey,
+		Body:   file,
+	})
+	if err != nil {
+		log.Printf("Couldn't upload large object to %v:%v. Here's why: %v\n",
+			bucket, objectKey, err)
+	}
+
+	return nil
+}
+
+func uploadObject_v1(s3Client *s3.Client, bucket, prefix, s3Path, localFilePath, localDir string) error {
 	// Calculate the relative path of the file
 	relativePath, err := filepath.Rel(localDir, localFilePath)
 	if err != nil {
